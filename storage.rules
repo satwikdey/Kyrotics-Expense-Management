@@ -1,0 +1,28 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isValidContentType() {
+      return request.resource.contentType.matches('application/pdf')
+          || request.resource.contentType.matches('image/png')
+          || request.resource.contentType.matches('image/jpeg');
+    }
+    
+    function isValidSize() {
+      return request.resource.size < 5 * 1024 * 1024; // 5 MB limit
+    }
+
+    match /receipts/{claimId}/{fileName} {
+      // Authenticated users can view receipts
+      allow read: if isAuthenticated();
+      
+      // Upload allowed only for valid file types within size limit
+      allow write: if isAuthenticated() && isValidContentType() && isValidSize();
+    }
+  }
+}
+

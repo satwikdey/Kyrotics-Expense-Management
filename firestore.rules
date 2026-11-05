@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        getUserData().role == 'admin'
+      );
+    }
+    
+    function isApproved() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        getUserData().approvalStatus == 'approved'
+      );
+    }
+    
+    // User collection rules
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+    
+    // Expense Claims rules
+    match /claims/{claimId} {
+      // Employees see their own claims; Admin sees all
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.user_id == request.auth.uid
+      );
+      
+      // Approved employees can submit a new pending claim
+      allow create: if isApproved() &&
+        request.resource.data.user_id == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.amount_paise > 0;
+      
+      // Claim Immutability: Employees CANNOT update or edit claims once submitted.
+      // Only Admin or Cloud Functions can update status (approve, reject, settle).
+      allow update: if isAdmin();
+      
+      // No deletions permitted to preserve audit trail
+      allow delete: if false;
+    }
+    
+    // Categories collection
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Counters collection (sequential numbering)
+    match /counters/{counterId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
+
