@@ -28,8 +28,24 @@ service cloud.firestore {
     // User collection rules
     match /users/{userId} {
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      
+      // User can create their own profile, but only as employee with pending status
+      allow create: if isAuthenticated() && request.auth.uid == userId && (
+        isAdmin() || (
+          request.resource.data.role == 'employee' &&
+          request.resource.data.approvalStatus == 'pending'
+        )
+      );
+      
+      // Admin can update any user; non-admins can only update their own profile and CANNOT change their role or approvalStatus
+      allow update: if isAuthenticated() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.approvalStatus == resource.data.approvalStatus
+        )
+      );
+      
       allow delete: if isAdmin();
     }
     
@@ -48,7 +64,7 @@ service cloud.firestore {
         request.resource.data.amount_paise > 0;
       
       // Claim Immutability: Employees CANNOT update or edit claims once submitted.
-      // Only Admin or Cloud Functions can update status (approve, reject, settle).
+      // Only Admin can update status (approve, reject, settle).
       allow update: if isAdmin();
       
       // No deletions permitted to preserve audit trail
@@ -67,4 +83,3 @@ service cloud.firestore {
     }
   }
 }
-

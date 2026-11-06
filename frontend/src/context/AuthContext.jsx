@@ -60,12 +60,25 @@ export function AuthProvider({ children }) {
               approvalStatus: data.approvalStatus || 'pending',
               isActive: data.isActive !== false,
             };
-            setCurrentUser(profile);
+            setCurrentUser(fbUser);
+            setUserProfile(profile);
+            localStorage.setItem('kyrotics_auth_user', JSON.stringify(profile));
+          } else {
+            // First time login fallback
+            const profile = {
+              uid: fbUser.uid,
+              email: fbUser.email,
+              name: fbUser.displayName || 'User',
+              role: 'employee',
+              approvalStatus: 'pending',
+              isActive: true,
+            };
+            setCurrentUser(fbUser);
             setUserProfile(profile);
             localStorage.setItem('kyrotics_auth_user', JSON.stringify(profile));
           }
         } catch {
-          // If offline / mock fallback
+          // If offline or unconfigured
         }
       }
       setLoading(false);
@@ -77,21 +90,7 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check pre-seeded demo accounts for instant zero-config testing
-    if (cleanEmail === 'admin@kyrotics.com' && password === 'Password123!') {
-      setCurrentUser(DEFAULT_KYROTICS_ADMIN);
-      setUserProfile(DEFAULT_KYROTICS_ADMIN);
-      localStorage.setItem('kyrotics_auth_user', JSON.stringify(DEFAULT_KYROTICS_ADMIN));
-      return DEFAULT_KYROTICS_ADMIN;
-    }
-    if (cleanEmail === 'employee@kyrotics.com' && password === 'Password123!') {
-      setCurrentUser(DEFAULT_KYROTICS_EMPLOYEE);
-      setUserProfile(DEFAULT_KYROTICS_EMPLOYEE);
-      localStorage.setItem('kyrotics_auth_user', JSON.stringify(DEFAULT_KYROTICS_EMPLOYEE));
-      return DEFAULT_KYROTICS_EMPLOYEE;
-    }
-
-    // Standard Firebase Auth
+    // 1. Try Firebase Auth
     try {
       const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
       const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
@@ -101,7 +100,7 @@ export function AuthProvider({ children }) {
         profile = {
           uid: cred.user.uid,
           email: cred.user.email,
-          name: data.name || 'User',
+          name: data.name || cred.user.displayName || 'User',
           role: data.role || 'employee',
           approvalStatus: data.approvalStatus || 'pending',
           isActive: data.isActive !== false,
@@ -110,18 +109,32 @@ export function AuthProvider({ children }) {
         profile = {
           uid: cred.user.uid,
           email: cred.user.email,
-          name: 'User',
+          name: cred.user.displayName || 'User',
           role: 'employee',
           approvalStatus: 'pending',
           isActive: true,
         };
       }
-      setCurrentUser(profile);
+      setCurrentUser(cred.user);
       setUserProfile(profile);
       localStorage.setItem('kyrotics_auth_user', JSON.stringify(profile));
       return profile;
     } catch (err) {
-      // If Firebase Auth throws because of missing live backend, check existing stored users
+      // 2. Demo fallback accounts for zero-config local testing
+      if (cleanEmail === 'admin@kyrotics.com' && password === 'Password123!') {
+        setCurrentUser(DEFAULT_KYROTICS_ADMIN);
+        setUserProfile(DEFAULT_KYROTICS_ADMIN);
+        localStorage.setItem('kyrotics_auth_user', JSON.stringify(DEFAULT_KYROTICS_ADMIN));
+        return DEFAULT_KYROTICS_ADMIN;
+      }
+      if (cleanEmail === 'employee@kyrotics.com' && password === 'Password123!') {
+        setCurrentUser(DEFAULT_KYROTICS_EMPLOYEE);
+        setUserProfile(DEFAULT_KYROTICS_EMPLOYEE);
+        localStorage.setItem('kyrotics_auth_user', JSON.stringify(DEFAULT_KYROTICS_EMPLOYEE));
+        return DEFAULT_KYROTICS_EMPLOYEE;
+      }
+
+      // 3. Fallback to locally registered users if Firebase is not yet configured
       const registeredUsers = JSON.parse(localStorage.getItem('kyrotics_registered_users') || '[]');
       const match = registeredUsers.find((u) => u.email === cleanEmail && u.password === password);
       if (match) {
@@ -142,12 +155,24 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const register = async ({ name, email, phone, password }) => {
+  const signup = async (emailOrObj, passwordArg, nameArg, phoneArg) => {
+    let email, password, name, phone;
+    if (typeof emailOrObj === 'object') {
+      email = emailOrObj.email;
+      password = emailOrObj.password;
+      name = emailOrObj.name;
+      phone = emailOrObj.phone;
+    } else {
+      email = emailOrObj;
+      password = passwordArg;
+      name = nameArg;
+      phone = phoneArg;
+    }
+
     const cleanEmail = email.trim().toLowerCase();
-    const uid = 'emp-' + Date.now();
+    let uid = 'emp-' + Date.now();
     const newProfile = {
-      uid,
-      name: name.trim(),
+      name: name?.trim() || 'Employee',
       email: cleanEmail,
       phone: phone?.trim() || null,
       role: 'employee',
@@ -158,19 +183,19 @@ export function AuthProvider({ children }) {
 
     try {
       const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        ...newProfile,
-        uid: cred.user.uid,
-      });
-      newProfile.uid = cred.user.uid;
+      uid = cred.user.uid;
+      newProfile.uid = uid;
+      await setDoc(doc(db, 'users', uid), newProfile);
+      setCurrentUser(cred.user);
     } catch {
       // Local demo fallback
+      newProfile.uid = uid;
       const registeredUsers = JSON.parse(localStorage.getItem('kyrotics_registered_users') || '[]');
       registeredUsers.push({ ...newProfile, password });
       localStorage.setItem('kyrotics_registered_users', JSON.stringify(registeredUsers));
+      setCurrentUser(newProfile);
     }
 
-    setCurrentUser(newProfile);
     setUserProfile(newProfile);
     localStorage.setItem('kyrotics_auth_user', JSON.stringify(newProfile));
     return newProfile;
@@ -188,6 +213,8 @@ export function AuthProvider({ children }) {
   };
 
   const value = {
+    currentUser,
+    userProfile,
     user: userProfile || currentUser,
     loading,
     isAdmin: userProfile?.role === 'admin',
@@ -196,7 +223,8 @@ export function AuthProvider({ children }) {
     isPending: userProfile?.approvalStatus === 'pending',
     isRejected: userProfile?.approvalStatus === 'rejected',
     login,
-    register,
+    signup,
+    register: signup,
     logout,
   };
 
@@ -208,4 +236,3 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
-
