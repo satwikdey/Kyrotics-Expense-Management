@@ -472,3 +472,104 @@ export const claimService = {
   },
 };
 
+export async function fetchClaims(status = null, userId = null) {
+  return claimService.getClaims({ status: status === 'all' ? null : status, userId });
+}
+
+export async function fetchClaimById(id) {
+  return claimService.getClaimById(id);
+}
+
+export async function submitClaim(claimData, files, user) {
+  return claimService.submitClaim({
+    user,
+    categoryId: claimData.claim_category_id,
+    claimDate: claimData.claim_date,
+    amountPaise: claimData.amount_paise,
+    description: claimData.description,
+    missingBillExplanation: claimData.missing_bill_explanation,
+    files,
+  });
+}
+
+export async function approveClaim(claimId, note, adminUser) {
+  return claimService.approveClaim(claimId, adminUser, note);
+}
+
+export async function rejectClaim(claimId, reason, adminUser) {
+  return claimService.rejectClaim(claimId, adminUser, reason);
+}
+
+export async function settleClaim(claimId, note, adminUser) {
+  return claimService.settleClaim(claimId, adminUser, note);
+}
+
+export async function fetchEmployees() {
+  const emps = await claimService.getEmployees();
+  return emps.map((e) => ({ id: e.uid, ...e }));
+}
+
+export async function updateEmployeeStatus(employeeId, status) {
+  if (status === 'approved') return claimService.approveEmployee(employeeId);
+  if (status === 'rejected') return claimService.rejectEmployee(employeeId);
+  if (status === 'deactivated') return claimService.toggleEmployeeActive(employeeId, true);
+}
+
+export async function inviteEmployee(employeeData) {
+  const newEmp = {
+    uid: 'emp-' + Date.now(),
+    name: employeeData.name,
+    email: employeeData.email,
+    phone: employeeData.phone || '',
+    role: 'employee',
+    approvalStatus: 'approved',
+    isActive: true,
+    created_at: new Date().toISOString(),
+  };
+  try {
+    await setDoc(doc(db, 'users', newEmp.uid), newEmp);
+  } catch {}
+  const registered = JSON.parse(localStorage.getItem('kyrotics_registered_users') || '[]');
+  registered.push(newEmp);
+  localStorage.setItem('kyrotics_registered_users', JSON.stringify(registered));
+  return newEmp;
+}
+
+export function exportClaimsToCsv(claims, filename) {
+  return claimService.exportClaimsCsv(claims);
+}
+
+export function calculateStats(claims = []) {
+  const stats = {
+    total: claims.length,
+    pending: 0,
+    pendingAmount: 0,
+    approved: 0,
+    approvedAmount: 0,
+    settled: 0,
+    settledAmount: 0,
+    rejected: 0,
+    rejectedAmount: 0,
+  };
+
+  claims.forEach((c) => {
+    const amt = Number(c.amount_paise) || 0;
+    if (c.status === 'pending') {
+      stats.pending += 1;
+      stats.pendingAmount += amt;
+    } else if (c.status === 'approved') {
+      stats.approved += 1;
+      stats.approvedAmount += amt;
+    } else if (c.status === 'settled') {
+      stats.settled += 1;
+      stats.settledAmount += amt;
+    } else if (c.status === 'rejected') {
+      stats.rejected += 1;
+      stats.rejectedAmount += amt;
+    }
+  });
+
+  return stats;
+}
+
+

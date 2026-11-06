@@ -16,6 +16,8 @@ export function parseRupeesToPaise(value) {
   return total <= 0 ? null : total;
 }
 
+export const parseInrToPaise = parseRupeesToPaise;
+
 export function formatInr(amountPaise, withSymbol = true) {
   if (amountPaise === null || amountPaise === undefined) return '—';
   const isNegative = amountPaise < 0;
@@ -39,7 +41,7 @@ export function paiseToRupees(amountPaise, withSymbol = true) {
   return formatInr(amountPaise, withSymbol);
 }
 
-export function formatIstDate(dateVal, includeTime = true) {
+export function formatIstDate(dateVal, includeTime = false) {
   if (!dateVal) return '—';
   const d = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
   if (isNaN(d.getTime())) return '—';
@@ -63,6 +65,10 @@ export function formatIstDate(dateVal, includeTime = true) {
   return `${dateStr}, ${timeStr} IST`;
 }
 
+export function formatIstDateTime(dateVal) {
+  return formatIstDate(dateVal, true);
+}
+
 export function csvSafe(value) {
   if (value === null || value === undefined) return '';
   const str = String(value);
@@ -76,4 +82,3 @@ export function csvSafe(value) {
   }
   return str;
 }
-
